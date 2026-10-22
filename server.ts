@@ -233,34 +233,51 @@ const DEFAULT_PRESETS: Record<string, any> = {
   },
 };
 
-// API Endpoint: Generate DJ Beat Arrangement Plan using Gemini 3.8 Flash
+// API Endpoint: Generate DJ Beat Arrangement Plan
 app.post('/api/dj/generate-plan', async (req, res) => {
+  const { genre, prompt, bpm, songTitle, uploadedTrackDuration, onlyPreset } = req.body;
+  const basePresetKey = genre || 'jedag_jedug';
+  const fallbackPlan = DEFAULT_PRESETS[basePresetKey] || DEFAULT_PRESETS.jedag_jedug;
+
+  // If user only requests preset switch or has no custom prompt, serve curated preset with 0 API quota used
+  if (onlyPreset || !prompt || prompt.trim() === '') {
+    return res.json({
+      success: true,
+      source: 'preset',
+      plan: {
+        ...fallbackPlan,
+        title: songTitle ? `${fallbackPlan.genre} X ${songTitle}` : fallbackPlan.title,
+        bpm: bpm ? Number(bpm) : fallbackPlan.bpm,
+      },
+    });
+  }
+
+  // If Gemini API Key is not set
+  if (!process.env.GEMINI_API_KEY) {
+    return res.json({
+      success: true,
+      source: 'preset',
+      plan: {
+        ...fallbackPlan,
+        title: songTitle ? `DJ Remix: ${songTitle}` : fallbackPlan.title,
+        bpm: bpm ? Number(bpm) : fallbackPlan.bpm,
+      },
+    });
+  }
+
   try {
-    const { genre, prompt, bpm, songTitle, uploadedTrackDuration } = req.body;
-
-    const basePresetKey = genre || 'jedag_jedug';
-    const fallbackPlan = DEFAULT_PRESETS[basePresetKey] || DEFAULT_PRESETS.jedag_jedug;
-
-    const userPrompt = `You are a world-class Electronic DJ and Indonesian Club Music Producer specializing in authentic, high-impact DJ remixes (Jedag-Jedug Mengkane with punchy 808 sub-bass, Funkot Breakbeat Kota, Koplo Kendang DJ, Slow Bass Glitch, and Festival EDM).
+    const userPrompt = `You are a world-class Electronic DJ and Indonesian Club Music Producer specializing in authentic DJ remixes (Jedag-Jedug Mengkane, Funkot Breakbeat Kota, Koplo Kendang DJ, Slow Bass Glitch, and Festival EDM).
 
 The user is mixing this DJ beat with their uploaded song:
 - Uploaded Song Title: "${songTitle || 'User Uploaded Track'}"
 - Uploaded Song Duration: ${uploadedTrackDuration ? Math.round(uploadedTrackDuration) + ' seconds' : 'Unknown'}
-- User Request / Vibe: "${prompt || 'Bikin beat DJ yang mantap, tidak bertabrakan dengan lagu saya, dan bassnya nendang'}"
+- User Request / Vibe: "${prompt}"
 - Selected Style: ${genre || 'Jedag Jedug'}
 - Target BPM: ${bpm || fallbackPlan.bpm}
 
-CRITICAL MIXING INSTRUCTIONS:
-Regular uploaded pop/dangdut/indie songs have their own original drums and bass. If layered with a generic DJ beat, the rhythm sounds messy or doesn't match ("ga cocok untuk dibikin dj").
-To make this remix sound genuinely professional and DJ-ready:
-1. Engineer a crisp, punchy drum pattern with distinct kick thud, snare/clap crack, and syncopated percussion that leaves room for the song's vocals.
-2. Provide precise advice on whether to activate the Vocal Isolator (Acapella mode) or Bass Kill so the song's vocals float over the DJ bass.
-3. Recommend the optimal drop cue timing and transition advice.
-4. Craft an energetic DJ MC shoutout tailored to this specific song or artist!
-
 Output a strictly valid JSON object adhering to this structure:
 {
-  "title": string (catchy DJ remix title mentioning the song or style, e.g. "DJ Jedag Jedug Mengkane X ${songTitle || 'Track'}"),
+  "title": string (catchy DJ remix title mentioning the song, e.g. "DJ Jedag Jedug Mengkane X ${songTitle || 'Track'}"),
   "genre": string,
   "bpm": number (between 120 and 160),
   "key": string (musical key, e.g. "F Minor", "G Minor", "D Minor"),
@@ -274,26 +291,13 @@ Output a strictly valid JSON object adhering to this structure:
     "hihat": array of 16 integers (0 or 1),
     "percussion": array of 16 integers (0 or 1)
   },
-  "melodyNotes": array of 16 numbers (frequencies in Hz, e.g. 261.63, 329.63, 392, or 0 for rest),
+  "melodyNotes": array of 16 numbers (frequencies in Hz, or 0 for rest),
   "basslineNotes": array of 16 numbers (frequencies in Hz, between 40Hz and 130Hz, or 0 for rest),
-  "djShoutout": string (energetic DJ MC shoutout mentioning the song or remix vibe, e.g. "DJ on the mix! Special remix for ${songTitle || 'this song'}! 3, 2, 1, DROP!"),
-  "mashupTips": string (detailed practical advice in Indonesian on EQ cut, activating Vocal Isolator, and drop build-up),
-  "mashupCueTime": number (optimal seconds into the uploaded song to drop this beat),
-  "dropTimingSeconds": number (seconds until the main drop build-up peaks)
+  "djShoutout": string,
+  "mashupTips": string,
+  "mashupCueTime": number,
+  "dropTimingSeconds": number
 }`;
-
-    if (!process.env.GEMINI_API_KEY) {
-      console.warn('GEMINI_API_KEY not found, returning smart preset template.');
-      return res.json({
-        success: true,
-        source: 'preset',
-        plan: {
-          ...fallbackPlan,
-          title: prompt ? `DJ Remix: ${prompt}` : fallbackPlan.title,
-          bpm: bpm ? Number(bpm) : fallbackPlan.bpm,
-        },
-      });
-    }
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
@@ -311,7 +315,6 @@ Output a strictly valid JSON object adhering to this structure:
       parsedPlan = fallbackPlan;
     }
 
-    // Ensure safe fallbacks for missing fields
     const validatedPlan = {
       title: parsedPlan.title || fallbackPlan.title,
       genre: parsedPlan.genre || fallbackPlan.genre,
@@ -335,33 +338,50 @@ Output a strictly valid JSON object adhering to this structure:
       source: 'gemini',
       plan: validatedPlan,
     });
-  } catch (error: any) {
-    console.error('Error generating DJ plan:', error);
-    // Return fallback preset smoothly without crashing the client
-    const fallback = DEFAULT_PRESETS[req.body.genre] || DEFAULT_PRESETS.jedag_jedug;
+  } catch (err: any) {
+    // Quota reached or transient error: log warning and serve smart algorithmic plan smoothly
+    console.warn('Gemini 3.8 Flash quota reached or rate-limited. Synthesizing smart DJ plan procedurally:', err?.status || err?.message || 'Quota limit');
+
+    // Procedural smart variation based on prompt & songTitle
+    const customTitle = songTitle
+      ? `DJ ${fallbackPlan.genre} X ${songTitle} (VIP Mix)`
+      : `DJ ${fallbackPlan.genre} Remix VIP`;
+
+    const smartProceduralPlan = {
+      ...fallbackPlan,
+      title: customTitle,
+      bpm: bpm ? Number(bpm) : fallbackPlan.bpm,
+      djShoutout: songTitle
+        ? `DJ on the mix! Special remix untuk ${songTitle}, 3, 2, 1, DROP!`
+        : fallbackPlan.djShoutout,
+      mashupTips: `Aktifkan Vocal Isolator (Acapella Mode) pada lagu ${songTitle || 'Anda'} agar vokal merdu tidak bentrok dengan 808 Sub Kick saat drop.`,
+    };
+
     return res.json({
       success: true,
-      source: 'preset-fallback',
-      plan: fallback,
-      errorNotice: error?.message || 'Generated using local DJ template',
+      source: 'smart-engine',
+      isQuotaExceeded: true,
+      plan: smartProceduralPlan,
+      notice: 'Menggunakan Smart DJ Engine lokal (Quota Gemini Free Tier harian tercapai, mixing tetap aktif 100%).',
     });
   }
 });
 
 // API Endpoint: Generate DJ MC Voice Drop / Shoutout using Gemini TTS
 app.post('/api/dj/generate-voice-drop', async (req, res) => {
+  const { text, voiceName, style } = req.body;
+  const promptText = text || 'Yo! Are you ready for the drop? Put your hands up!';
+  const selectedVoice = voiceName || 'Fenrir';
+
+  if (!process.env.GEMINI_API_KEY) {
+    return res.json({
+      success: false,
+      isQuotaExceeded: true,
+      error: 'Fitur MC voice drop memerlukan API Key. Soundboard bawaan tetap aktif 100%!',
+    });
+  }
+
   try {
-    const { text, voiceName, style } = req.body;
-    const promptText = text || 'Yo! Are you ready for the drop? Put your hands up!';
-    const selectedVoice = voiceName || 'Fenrir'; // Options: Fenrir, Puck, Zephyr, Kore, Charon
-
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(400).json({
-        success: false,
-        error: 'GEMINI_API_KEY is not configured on the server.',
-      });
-    }
-
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash-lite-tts',
       contents: [
@@ -400,31 +420,47 @@ app.post('/api/dj/generate-voice-drop', async (req, res) => {
       text: promptText,
     });
   } catch (error: any) {
-    console.error('Error generating DJ voice drop:', error);
-    return res.status(500).json({
+    console.warn('Gemini TTS voice drop quota reached or rate-limited:', error?.status || error?.message);
+    return res.json({
       success: false,
-      error: error?.message || 'Failed to generate voice drop',
+      isQuotaExceeded: true,
+      error: 'Batas quota harian Gemini Free Tier tercapai. Tombol Soundboard (AIRHORN, SIREN, LASER, SPINBACK, 808 BOOM, dan ANGGUK-ANGGUK) tetap berfungsi penuh!',
     });
   }
 });
 
 // API Endpoint: Analyze Uploaded Song for DJ Mashup
 app.post('/api/dj/analyze-audio', async (req, res) => {
-  try {
-    const { fileName, estimatedBpm, duration } = req.body;
+  const { fileName, estimatedBpm, duration } = req.body;
 
+  const defaultAnalysis = {
+    recommendedGenre: 'Jedag Jedug Indonesia',
+    targetBpm: estimatedBpm || 135,
+    eqTips: 'Aktifkan Vocal Isolator (Acapella Mode) dan potong low bass pada lagu saat drop agar sub 808 tidak bentrok.',
+    transitionGuide: 'Gunakan High-Pass filter sweep 4 bar sebelum drop, lalu tekan Auto Mashup atau Angguk-Angguk.',
+    suggestedHypeDrop: 'Persiapan... 3, 2, 1, Jedag-Jedug!',
+  };
+
+  if (!process.env.GEMINI_API_KEY) {
+    return res.json({
+      success: true,
+      analysis: defaultAnalysis,
+    });
+  }
+
+  try {
     const analysisPrompt = `A DJ is preparing to mix an uploaded song into a DJ set.
 Song file name: "${fileName || 'uploaded_song.mp3'}"
 Estimated duration: ${Math.round(duration || 180)} seconds
 Detected BPM: ${estimatedBpm || 128} BPM.
 
-Provide actionable DJ mixing instructions in Indonesian and English:
-1. Recommended DJ Beat Genre to mix with (Jedag Jedug, Funkot, Festival EDM, or Phonk).
-2. The key frequency zones to EQ cut (e.g. Bass Kill at drop, Mid Boost for vocal clarity).
-3. The exact bar/time to initiate transition and build-up.
-4. DJ soundboard FX triggers to mask transitions (Airhorn, Vinyl Scratch, Riser).
+Provide actionable DJ mixing instructions in Indonesian:
+1. Recommended DJ Beat Genre to mix with (Jedag Jedug, Funkot, Festival EDM, or Koplo).
+2. The key frequency zones to EQ cut (e.g. Bass Kill at drop, Vocal Isolator).
+3. The exact bar/time to initiate transition.
+4. Suggested hype drop phrase.
 
-Return a JSON with:
+Return JSON:
 {
   "recommendedGenre": string,
   "targetBpm": number,
@@ -432,19 +468,6 @@ Return a JSON with:
   "transitionGuide": string,
   "suggestedHypeDrop": string
 }`;
-
-    if (!process.env.GEMINI_API_KEY) {
-      return res.json({
-        success: true,
-        analysis: {
-          recommendedGenre: 'Jedag Jedug Indonesia',
-          targetBpm: estimatedBpm || 135,
-          eqTips: 'Cut low bass (-12dB to -24dB) on the uploaded track during the DJ Drop to prevent muddiness with the 808 sub.',
-          transitionGuide: 'Trigger the High-Pass Filter 4 bars before the drop, roll the 1/8 beat repeater, then slam crossfader to center.',
-          suggestedHypeDrop: 'Persiapan... 3, 2, 1, Jedag-Jedug!',
-        },
-      });
-    }
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
@@ -457,18 +480,17 @@ Return a JSON with:
     const parsed = JSON.parse(response.text || '{}');
     return res.json({
       success: true,
-      analysis: parsed,
+      analysis: {
+        ...defaultAnalysis,
+        ...parsed,
+      },
     });
   } catch (err: any) {
+    console.warn('Gemini analysis rate-limited or quota reached, serving smart rule-based analysis:', err?.message);
     return res.json({
       success: true,
-      analysis: {
-        recommendedGenre: 'Jedag Jedug Indonesia',
-        targetBpm: 135,
-        eqTips: 'Kill bass EQ on user song when DJ beat drops.',
-        transitionGuide: 'Use filter sweep and crossfader.',
-        suggestedHypeDrop: 'Let the bass kick in!',
-      },
+      isQuotaExceeded: true,
+      analysis: defaultAnalysis,
     });
   }
 });

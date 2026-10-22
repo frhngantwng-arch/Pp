@@ -39,6 +39,7 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
   const [targetBpm, setTargetBpm] = useState(currentBpm || 138);
   const [isGeneratingBeat, setIsGeneratingBeat] = useState(false);
   const [beatResult, setBeatResult] = useState<DJTrackPlan | null>(null);
+  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
 
   // Voice drop state
   const [voiceText, setVoiceText] = useState(`DJ on the mix! Special remix untuk ${currentSongTitle || 'lagu ini'}, let's drop the bass!`);
@@ -74,7 +75,7 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
       // Automatically load into Deck B
       onLoadSongToDeckB(decoded, cleanTitle, detected);
     } catch (err) {
-      console.error('Modal audio upload failed:', err);
+      console.warn('Modal audio upload failed:', err);
       alert('Gagal membaca file audio.');
     } finally {
       setIsUploading(false);
@@ -112,12 +113,17 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
         }),
       });
       const data = await res.json();
+      if (data.isQuotaExceeded) {
+        setQuotaNotice('Smart Procedural DJ Engine aktif: Beat jedag-jedug berhasil diracik tanpa hambatan kuota!');
+      } else {
+        setQuotaNotice(null);
+      }
       if (data.plan) {
         setBeatResult(data.plan);
         onApplyPlan(data.plan);
       }
     } catch (err) {
-      console.error('Error generating beat plan:', err);
+      console.warn('Error generating beat plan:', err);
     } finally {
       setIsGeneratingBeat(false);
     }
@@ -153,12 +159,14 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
           setVoiceStatus('Voice drop loaded! Trigger it with the MC DROP button.');
           djEngine.triggerVoiceDrop();
         }
+      } else if (data.isQuotaExceeded) {
+        setVoiceStatus('Fitur suara Gemini sedang cooldown harian. Gunakan Soundboard FX bawaan (Horn, Siren, Kendang, Angguk-Angguk)!');
       } else {
         setVoiceStatus(data.error || 'Failed to generate voice drop');
       }
     } catch (err: any) {
-      console.error('Voice drop error:', err);
-      setVoiceStatus('Error generating voice drop.');
+      console.warn('Voice drop info:', err);
+      setVoiceStatus('Suara MC offline sementara. Gunakan Soundboard FX!');
     } finally {
       setIsGeneratingVoice(false);
     }
@@ -352,6 +360,13 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
                       {beatResult.mashupTips}
                     </p>
                   )}
+                </div>
+              )}
+
+              {quotaNotice && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>{quotaNotice}</span>
                 </div>
               )}
 

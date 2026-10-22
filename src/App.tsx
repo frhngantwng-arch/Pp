@@ -14,6 +14,7 @@ import {
   FolderOpen,
   Headphones,
   Mic,
+  Scissors,
 } from 'lucide-react';
 import { djEngine, DJTrackPlan } from './audio/DJEngine';
 import { estimateBPMFromAudioBuffer } from './utils/beatDetector';
@@ -23,6 +24,7 @@ import { WaveformDisplay } from './components/WaveformDisplay';
 import { StepSequencerView } from './components/StepSequencerView';
 import { CenterMixer } from './components/CenterMixer';
 import { AIAssistantModal } from './components/AIAssistantModal';
+import { DAWTimelineStudio } from './components/DAWTimelineStudio';
 
 export default function App() {
   // Master Engine State
@@ -31,7 +33,7 @@ export default function App() {
   const [jedagBoost, setJedagBoost] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [activeView, setActiveView] = useState<'mixer' | 'sequencer' | 'guide'>('mixer');
+  const [activeView, setActiveView] = useState<'mixer' | 'timeline' | 'sequencer' | 'guide'>('mixer');
 
   // Deck A (AI DJ Beat) State
   const [deckAPlaying, setDeckAPlaying] = useState(false);
@@ -66,7 +68,7 @@ export default function App() {
     fetch('/api/dj/generate-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ genre: 'jedag_jedug' }),
+      body: JSON.stringify({ genre: 'jedag_jedug', onlyPreset: true }),
     })
       .then((res) => res.json())
       .then((data) => {
@@ -76,7 +78,7 @@ export default function App() {
           djEngine.setPlan(data.plan);
         }
       })
-      .catch((err) => console.error('Failed to load initial DJ plan:', err));
+      .catch((err) => console.warn('Loading initial DJ plan:', err));
 
     const loadDefaultDemo = async () => {
       djEngine.init();
@@ -276,6 +278,7 @@ export default function App() {
           genre: genreKey,
           songTitle: uploadedTrackName,
           bpm,
+          onlyPreset: true,
         }),
       });
       const data = await res.json();
@@ -283,7 +286,7 @@ export default function App() {
         handleApplyPlan(data.plan);
       }
     } catch (err) {
-      console.error('Failed to change preset:', err);
+      console.warn('Preset change fallback:', err);
     }
   };
 
@@ -420,7 +423,7 @@ export default function App() {
           </span>
         </div>
 
-        <nav className="hidden md:flex items-center gap-6 text-xs font-semibold text-neutral-400">
+        <nav className="hidden md:flex items-center gap-4 text-xs font-semibold text-neutral-400">
           <button
             type="button"
             onClick={() => setActiveView('mixer')}
@@ -429,6 +432,18 @@ export default function App() {
             }`}
           >
             Meja DJ Console
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('timeline')}
+            className={`transition-all whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1.5 px-3 py-1 rounded-lg ${
+              activeView === 'timeline'
+                ? 'bg-amber-500 text-neutral-950 font-bold shadow-md shadow-amber-500/20'
+                : 'text-amber-400 hover:text-amber-300 bg-amber-500/10 border border-amber-500/30'
+            }`}
+          >
+            <Scissors className="w-3.5 h-3.5" />
+            Studio Edit & Geser Angguk (DAW)
           </button>
           <button
             type="button"
@@ -487,6 +502,16 @@ export default function App() {
             <span className="text-neutral-500 font-mono-numbers">· {bpm} BPM</span>
           </div>
 
+          {/* Quick DAW Timeline Switcher */}
+          <button
+            type="button"
+            onClick={() => setActiveView('timeline')}
+            className="bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 text-amber-300 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+          >
+            <Scissors className="w-3.5 h-3.5 text-amber-400" />
+            <span>Potong Lagu & Geser Angguk di Timeline (DAW)</span>
+          </button>
+
           {/* Angguk-Angguk Active Banner */}
           {isAnggukPlaying && (
             <div className="bg-rose-500/20 border border-rose-500/60 text-rose-200 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(244,63,94,0.4)] animate-pulse">
@@ -515,7 +540,7 @@ export default function App() {
               className="text-amber-400 hover:underline font-semibold ml-1 cursor-pointer flex items-center gap-1"
             >
               <Sparkles className="w-3 h-3" />
-              Remix Lagu Ini dengan AI
+              Remix Lagu Ini
             </button>
           </div>
         </div>
@@ -676,7 +701,14 @@ export default function App() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-neutral-400 px-1">
                   <span className="font-semibold text-cyan-400">Deck B · Waveform Audio & Drop Point</span>
-                  <span>Scrub Playhead</span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveView('timeline')}
+                    className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 text-[11px]"
+                  >
+                    <Scissors className="w-3 h-3" />
+                    Buka Studio Potong & Geser Angguk (DAW)
+                  </button>
                 </div>
                 <WaveformDisplay
                   buffer={deckBBuffer}
@@ -688,6 +720,35 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* TIMELINE STUDIO (DAW) VIEW: Cut Lagu & Geser Angguk Drop */}
+        {activeView === 'timeline' && (
+          <DAWTimelineStudio
+            userSongBuffer={deckBBuffer}
+            userSongTitle={uploadedTrackName}
+            songBpm={deckBDetectedBpm || bpm}
+            songDuration={deckBDuration}
+            currentPlan={currentPlan}
+            onUploadSong={async (file) => {
+              setIsDecodingAudio(true);
+              try {
+                await djEngine.ensureRunning();
+                if (!djEngine.ctx) return;
+                const arrayBuffer = await file.arrayBuffer();
+                const decodedBuffer = await djEngine.ctx.decodeAudioData(arrayBuffer);
+                const detectedBpm = estimateBPMFromAudioBuffer(decodedBuffer);
+                const title = file.name.replace(/\.[^/.]+$/, '');
+                await handleLoadSongToDeckB(decodedBuffer, title, detectedBpm);
+              } catch (err) {
+                console.warn('Decode error:', err);
+                alert('Gagal membaca file audio.');
+              } finally {
+                setIsDecodingAudio(false);
+              }
+            }}
+            onBackToConsole={() => setActiveView('mixer')}
+          />
         )}
 
         {/* STEP SEQUENCER EXPANDED VIEW */}
