@@ -1,0 +1,6 @@
+{
+  "name": "DJ MixStudio AI - Generator & Track Mixer",
+  "description": "AI DJ music generator and real-time audio mashup mixer. Blend your uploaded songs with AI-generated DJ beats, jedag-jedug drops, and vocal hype.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
